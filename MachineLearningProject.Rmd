@@ -1,0 +1,124 @@
+---
+title: "Practical Machine Learning Project"
+author: "Justin Wen"
+date: "September 20, 2015"
+output: html_document
+---
+
+## Introduction
+
+In this project, we will be analyzing data gathered from sensors attached to participants instructed to perform bicep curls with a dumbbell either correctly (Class A) or in an incorrect fashion (Classes B-E).  The data will be used to build a model and predict the manner in which the exercise was done.
+
+## Loading the Data
+
+``` {r loading data and libraries, message=FALSE}
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", "pml-training.csv")
+data <- read.csv("pml-training.csv")
+
+library(caret)
+library(rpart)
+library(randomForest)
+library(rattle)
+```
+
+## Splitting Data into Training and Testing
+
+After loading the data, we can set a seed and split the dataset into training and test sets.
+
+``` {r data partition}
+set.seed(208)
+inTrain <- createDataPartition(y=data$classe, p=0.7, list=FALSE)
+training <- data[inTrain, ]
+testing <- data[-inTrain, ]
+```
+
+## Cleaning the Data
+
+After looking over the different columns in the dataset, it is apparent that there are a few columns that are not important for predicting the manner in which the exercise is being done.  These columns are "X", "user_name", the 3 timestamp columns and "new_window".  The reasoning for this is that X is just an index for the row number, the user that is doing the exercise, when they are doing it and whether it is a new window or not are not relevant.  Therefore, we can create a new training and testing set without those variables.
+
+``` {r initial removal}
+training <- training[,c(-1,-2,-3,-4,-5,-6)]
+testing <- testing[,c(-1,-2,-3,-4,-5,-6)]
+```
+
+Next we can determine if any variables have zero or near zero variability and remove them (no variables have zero variability so we just remove all near zero variability columns):
+
+``` {r nearZeroVar check}
+nsv <- nearZeroVar(training, saveMetrics=TRUE)
+logi <- !nsv$nzv
+training <- training[,logi]
+testing <- testing[,logi]
+```
+
+Of the remaining columns, by looking at `View(training)`, we can see there still exists quite a few that are comprised largely of NA's.  We will remove these variables:
+
+``` {r remove NA dominated variables}
+## Initialize an empty index variable
+index <- NULL
+
+## Loop over all columns and add the column index to the index variable if the first value is NA
+for (i in 1:ncol(training)) {
+     if (is.na(training[,i][1])) {
+          index <- c(index, i)
+     }
+}
+
+## Subset the datasets to remove all columns that have a first value of NA
+training <- training[,-index]
+testing <- testing[,-index]
+```
+
+Finally, we will convert all columns besides classe to numeric:
+
+```{r coerce to numeric}
+## Convert all columns besides classe to numeric
+for (i in 1:ncol(training)) {
+     if (class(training[,i]) == "numeric") {next}
+     else if(i == ncol(training)) {next}
+     else {
+          training[,i] <- as.numeric(training[,i])
+          testing[,i] <- as.numeric(testing[,i])
+     }
+}
+```
+
+## Model
+### Decision Tree
+
+We will first build a model using the "rpart" method for tree-based models:
+
+``` {r tree model}
+modelFit1 <- rpart(classe ~ ., data=training, method = "class")
+fancyRpartPlot(modelFit1)
+predictions1 <- predict(modelFit1, testing, type = "class")
+confusionMatrix(predictions1, testing$classe)
+```
+
+Upon evaluating the confusion matrix against the test set, we can see that this method is not particularly accurate.
+
+### Random Forest
+
+Next, we will build a model using the random forest method:
+
+``` {r random forest model}
+modelFit2 <- randomForest(classe ~ ., data=training)
+predictions2 <- predict(modelFit2, testing)
+confusionMatrix(predictions2, testing$classe)
+```
+
+Upon evaluating the confusion matrix, we can see that the random forest method was much more accurate in its predictions.
+
+## Test Cases for Submission
+
+Finally, we will predict the exercise for the test cases needed for submission.
+
+``` {r}
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", "pml-testing.csv")
+test <- read.csv("pml-testing.csv")
+predictions3 <- predict(modelFit2, test)
+predictions3
+```
+
+## Conclusions
+
+Two models were developed and tested against the test dataset: one using a decision tree and another using random forests.  The random forest model proved to be much better at predicting the correct Class of the exercise from the given data.
